@@ -1,0 +1,102 @@
+function onOpen() {
+  SpreadsheetApp.getUi().createMenu('⏳ Countdown Timer')
+    .addItem('Start Countdown (selected cell)', 'startCountdown')
+    .addItem('Stop Countdown (selected cell)', 'stopCountdown')
+    .addToUi();
+}
+
+function startCountdown() {
+  const ui = SpreadsheetApp.getUi();
+  const range = SpreadsheetApp.getActiveRange();
+
+  if (!range || range.getWidth() > 1 || range.getHeight() > 1) {
+    ui.alert('Please select a single cell to place the countdown timer.');
+    return;
+  }
+
+  const cellA1 = range.getA1Notation();
+  const response = ui.prompt('Countdown Timer', 'Enter number of hours:', ui.ButtonSet.OK_CANCEL);
+
+  if (response.getSelectedButton() !== ui.Button.OK) return;
+
+  const hours = parseFloat(response.getResponseText());
+  if (isNaN(hours) || hours <= 0) {
+    ui.alert('Invalid input. Please enter a positive number.');
+    return;
+  }
+
+  const endTime = new Date(new Date().getTime() + hours * 3600000);
+  const props = PropertiesService.getScriptProperties();
+  props.setProperty('END_' + cellA1, endTime.toISOString());
+
+  updateCountdowns(); // Update immediately
+  ensureTrigger();
+}
+
+function stopCountdown() {
+  const ui = SpreadsheetApp.getUi();
+  const range = SpreadsheetApp.getActiveRange();
+
+  if (!range || range.getWidth() > 1 || range.getHeight() > 1) {
+    ui.alert('Please select a single cell with an active countdown.');
+    return;
+  }
+
+  const cellA1 = range.getA1Notation();
+  PropertiesService.getScriptProperties().deleteProperty('END_' + cellA1);
+  range.setValue('Timer Stopped');
+}
+
+function updateCountdowns() {
+  const props = PropertiesService.getScriptProperties().getProperties();
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getActiveSheet();
+
+  let activeTimers = 0;
+
+  for (const key in props) {
+    if (key.startsWith('END_')) {
+      const cellA1 = key.replace('END_', '');
+      const endTime = new Date(props[key]);
+      const now = new Date();
+      const diffMs = endTime - now;
+      const cell = sheet.getRange(cellA1);
+
+      if (diffMs <= 0) {
+        cell.setValue("00:00:00 - Time's up!");
+        PropertiesService.getScriptProperties().deleteProperty(key);
+      } else {
+        const hours = Math.floor(diffMs / 3600000);
+        const minutes = Math.floor((diffMs % 3600000) / 60000);
+        const seconds = Math.floor((diffMs % 60000) / 1000);
+        const formatted = `${pad(hours)}:${pad(minutes)}:${pad(seconds)}`;
+        cell.setValue(formatted);
+
+
+        activeTimers++;
+      }
+    }
+  }
+
+  if (activeTimers === 0) clearAllTriggers();
+}
+
+function pad(n) {
+  return n.toString().padStart(2, '0');
+}
+
+function ensureTrigger() {
+  const triggers = ScriptApp.getProjectTriggers();
+  const hasTrigger = triggers.some(trigger => trigger.getHandlerFunction() === 'updateCountdowns');
+  if (!hasTrigger) {
+    ScriptApp.newTrigger('updateCountdowns').timeBased().everyMinutes(1).create();
+  }
+}
+
+function clearAllTriggers() {
+  const triggers = ScriptApp.getProjectTriggers();
+  for (const trigger of triggers) {
+    if (trigger.getHandlerFunction() === 'updateCountdowns') {
+      ScriptApp.deleteTrigger(trigger);
+    }
+  }
+}
